@@ -1313,22 +1313,29 @@ class Database {
 
 export const db = new Database();
 
-let mongoDbInstance: Db | null = null;
+let isMongoConnected = false;
+let isMongoConnecting = false;
 
 export async function initMongo(): Promise<boolean> {
+  if (isMongoConnected) return true;
+  if (isMongoConnecting) return false;
+
   const uri = process.env.MONGODB_URI;
   if (!uri || !uri.startsWith('mongodb')) {
     console.log('[Database] Running in Local Persistent Mode (.campusos_db.json)');
     return false;
   }
 
+  isMongoConnecting = true;
   try {
     const client = new MongoClient(uri, {
-      connectTimeoutMS: 8000,
-      serverSelectionTimeoutMS: 8000,
+      connectTimeoutMS: 3000,
+      serverSelectionTimeoutMS: 3000,
     });
     await client.connect();
     mongoDbInstance = client.db('campusos');
+    isMongoConnected = true;
+    isMongoConnecting = false;
     const clusterHost = uri.split('@')[1]?.split('/')[0] || 'Atlas Cluster';
     console.log(`[MongoDB Atlas] Connected successfully to live cluster (${clusterHost})!`);
 
