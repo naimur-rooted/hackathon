@@ -81,8 +81,7 @@ export const AuthModal: React.FC = () => {
     try {
       const res = await sendLoginOtp(email.trim(), password);
       if (res.success) {
-        const hint = res.demoOtp ? ` (Code: ${res.demoOtp} or 123456)` : ' (Default code: 123456)';
-        setSuccessMsg(`Verification code sent to ${email.trim()}.${hint}`);
+        setSuccessMsg(`Verification code sent to ${email.trim()}.`);
         setMode('LOGIN_OTP');
       }
     } catch (err: any) {
@@ -124,8 +123,7 @@ export const AuthModal: React.FC = () => {
         section: section.trim(),
       });
       if (res.success) {
-        const hint = res.demoOtp ? ` (Code: ${res.demoOtp} or 123456)` : ' (Default code: 123456)';
-        setSuccessMsg(`Verification code sent to ${email.trim()}.${hint}`);
+        setSuccessMsg(`Verification code sent to ${email.trim()}.`);
         setMode('REGISTER_OTP');
       }
     } catch (err: any) {

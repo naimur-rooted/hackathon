@@ -214,7 +214,6 @@ export interface DatabaseState {
   lostFound: LostFoundItem[];
   directory: DirectoryContact[];
   helpdeskInquiries: HelpdeskInquiry[];
-  otps?: Record<string, { email: string; code: string; type: string; expiresAt: number }>;
 }
 
 // Initial seed data with authentic City University information
