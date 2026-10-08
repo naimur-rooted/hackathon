@@ -13,10 +13,13 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-async function startServer() {
+export const app = express();
+let isAppConfigured = false;
+
+export async function configureApp() {
+  if (isAppConfigured) return app;
+  isAppConfigured = true;
   await initMongo();
-  const app = express();
-  const PORT = parseInt(process.env.PORT || '3000', 10);
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -1302,6 +1305,12 @@ async function startServer() {
     }
   });
 
+}
+
+export async function startServer() {
+  await configureApp();
+  const PORT = parseInt(process.env.PORT || '3000', 10);
+
   // ----------------------------------------------------
   // VITE DEV MIDDLEWARE / STATIC PROD
   // ----------------------------------------------------
@@ -1323,7 +1332,9 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  console.error('Fatal server startup failure:', err);
-  process.exit(1);
-});
+if (!process.env.VERCEL) {
+  startServer().catch((err) => {
+    console.error('Fatal server startup failure:', err);
+    process.exit(1);
+  });
+}
