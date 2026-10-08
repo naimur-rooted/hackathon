@@ -136,7 +136,7 @@ export async function configureApp() {
   });
 
   // Complete Registration with OTP (Always default role STUDENT)
-  app.post('/api/auth/verify-register-otp', (req: Request, res: Response) => {
+  app.post('/api/auth/verify-register-otp', async (req: Request, res: Response) => {
     const { name, email, password, department, batch, section, studentId, otp } = req.body;
     if (!name || !email || !password || !department || !otp) {
       return res.status(400).json({ success: false, message: 'All fields and OTP are required' });
@@ -175,7 +175,7 @@ export async function configureApp() {
     };
 
     state.users.push(newUser);
-    db.save();
+    await db.save();
 
     const token = generateToken(newUser);
     const { passwordHash: _, ...safeUser } = newUser;

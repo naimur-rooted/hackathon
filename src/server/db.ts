@@ -214,6 +214,7 @@ export interface DatabaseState {
   lostFound: LostFoundItem[];
   directory: DirectoryContact[];
   helpdeskInquiries: HelpdeskInquiry[];
+  otps?: Record<string, { email: string; code: string; type: string; expiresAt: number }>;
 }
 
 // Initial seed data with authentic City University information
@@ -1258,9 +1259,9 @@ class Database {
     }
   }
 
-  public save(): void {
+  public async save(): Promise<void> {
     this.saveState(this.state);
-    this.syncToMongo();
+    await this.syncToMongo();
   }
 
   public saveLocal(): void {

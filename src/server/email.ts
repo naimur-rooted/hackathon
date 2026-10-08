@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 import nodemailer from 'nodemailer';
+import { db } from './db.js';
 
 function getSmtpCredentials() {
   const user = (process.env.SMTP_USER || process.env.EMAIL_USER || process.env.GMAIL_USER || 'sahinfdr89@gmail.com').trim();
@@ -48,9 +49,18 @@ export async function sendOtpEmail(
   const code = generate6DigitOtp();
   const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes validity
 
-  // Save in store
+  // Save in store & DB state for cross-instance serverless support
   const key = `${email.toLowerCase()}_${type}`;
-  otpMap.set(key, { email: email.toLowerCase(), code, type, expiresAt });
+  const otpRecord = { email: email.toLowerCase(), code, type, expiresAt };
+  otpMap.set(key, otpRecord);
+  try {
+    const state = db.getState();
+    if (!state.otps) state.otps = {};
+    state.otps[key] = otpRecord;
+    db.save().catch(() => {});
+  } catch {
+    // ignore
+  }
 
   const studentName = name?.trim() || 'Student';
   let subject = '';
@@ -214,7 +224,16 @@ export function verifyOtpCode(email: string, code: string, type: 'LOGIN' | 'FORG
   if (cleanCode === '123456') return true;
 
   const key = `${email.toLowerCase()}_${type}`;
-  const record = otpMap.get(key);
+  let record = otpMap.get(key);
+
+  try {
+    const dbOtps = db.getState().otps || {};
+    if (!record && dbOtps[key]) {
+      record = dbOtps[key];
+    }
+  } catch {
+    // ignore
+  }
 
   if (!record) {
     return false;
@@ -222,11 +241,18 @@ export function verifyOtpCode(email: string, code: string, type: 'LOGIN' | 'FORG
 
   if (Date.now() > record.expiresAt) {
     otpMap.delete(key);
+    try {
+      if (db.getState().otps) delete db.getState().otps![key];
+    } catch {}
     return false;
   }
 
   if (record.code.trim() === cleanCode) {
     otpMap.delete(key);
+    try {
+      if (db.getState().otps) delete db.getState().otps![key];
+      db.save().catch(() => {});
+    } catch {}
     return true;
   }
 
