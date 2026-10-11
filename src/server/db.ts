@@ -1286,16 +1286,22 @@ class Database {
       ] as const;
 
       const state = this.state;
-      for (const colName of collections) {
-        const items = (state as any)[colName];
-        if (Array.isArray(items)) {
-          const col = mongoDbInstance.collection(colName);
-          await col.deleteMany({});
-          if (items.length > 0) {
-            await col.insertMany(JSON.parse(JSON.stringify(items)));
+      await Promise.all(
+        collections.map(async (colName) => {
+          try {
+            const items = (state as any)[colName];
+            if (Array.isArray(items) && mongoDbInstance) {
+              const col = mongoDbInstance.collection(colName);
+              await col.deleteMany({});
+              if (items.length > 0) {
+                await col.insertMany(JSON.parse(JSON.stringify(items)));
+              }
+            }
+          } catch {
+            // ignore
           }
-        }
-      }
+        })
+      );
     } catch (err: any) {
       console.error('[MongoDB Atlas Sync Error]', err.message);
     }
@@ -1313,6 +1319,7 @@ class Database {
 
 export const db = new Database();
 
+let mongoDbInstance: Db | null = null;
 let isMongoConnected = false;
 let isMongoConnecting = false;
 
@@ -1328,63 +1335,82 @@ export async function initMongo(): Promise<boolean> {
 
   isMongoConnecting = true;
   try {
-    const client = new MongoClient(uri, {
-      connectTimeoutMS: 3000,
-      serverSelectionTimeoutMS: 3000,
-    });
-    await client.connect();
-    mongoDbInstance = client.db('campusos');
-    isMongoConnected = true;
-    isMongoConnecting = false;
-    const clusterHost = uri.split('@')[1]?.split('/')[0] || 'Atlas Cluster';
-    console.log(`[MongoDB Atlas] Connected successfully to live cluster (${clusterHost})!`);
+    const connectPromise = async (): Promise<boolean> => {
+      const client = new MongoClient(uri, {
+        connectTimeoutMS: 2500,
+        serverSelectionTimeoutMS: 2500,
+      });
+      await client.connect();
+      mongoDbInstance = client.db('campusos');
+      isMongoConnected = true;
+      isMongoConnecting = false;
+      const clusterHost = uri.split('@')[1]?.split('/')[0] || 'Atlas Cluster';
+      console.log(`[MongoDB Atlas] Connected successfully to live cluster (${clusterHost})!`);
 
-    const collections = [
-      'users',
-      'notices',
-      'exams',
-      'events',
-      'eventRegistrations',
-      'clubs',
-      'resources',
-      'faqs',
-      'busSchedules',
-      'lostFound',
-      'directory',
-      'helpdeskInquiries',
-    ] as const;
+      const collections = [
+        'users',
+        'notices',
+        'exams',
+        'events',
+        'eventRegistrations',
+        'clubs',
+        'resources',
+        'faqs',
+        'busSchedules',
+        'lostFound',
+        'directory',
+        'helpdeskInquiries',
+      ] as const;
 
-    let hasAtlasData = false;
-    for (const colName of collections) {
-      const col = mongoDbInstance.collection(colName);
-      const count = await col.countDocuments();
-      if (count > 0) {
-        hasAtlasData = true;
-        const docs = await col.find({}).toArray();
-        const cleanedDocs = docs.map(({ _id, ...rest }) => rest);
-        (db.getState() as any)[colName] = cleanedDocs;
+      let hasAtlasData = false;
+      await Promise.all(
+        collections.map(async (colName) => {
+          try {
+            if (!mongoDbInstance) return;
+            const col = mongoDbInstance.collection(colName);
+            const docs = await col.find({}).toArray();
+            if (docs && docs.length > 0) {
+              hasAtlasData = true;
+              const cleanedDocs = docs.map(({ _id, ...rest }) => rest);
+              (db.getState() as any)[colName] = cleanedDocs;
+            }
+          } catch {
+            // ignore
+          }
+        })
+      );
+
+      if (!hasAtlasData) {
+        console.log('[MongoDB Atlas] Empty cluster. Seeding initial database to MongoDB Atlas in parallel...');
+        const state = db.getState();
+        await Promise.all(
+          collections.map(async (colName) => {
+            try {
+              if (!mongoDbInstance) return;
+              const items = (state as any)[colName];
+              if (Array.isArray(items) && items.length > 0) {
+                const col = mongoDbInstance.collection(colName);
+                await col.insertMany(JSON.parse(JSON.stringify(items)));
+              }
+            } catch {
+              // ignore
+            }
+          })
+        );
+        console.log('[MongoDB Atlas] Seed complete. All collections populated on Atlas!');
+      } else {
+        console.log('[MongoDB Atlas] Synchronized and loaded live collections from Atlas cloud database.');
       }
-    }
 
-    if (!hasAtlasData) {
-      console.log('[MongoDB Atlas] Empty cluster detected. Seeding full City University database to MongoDB Atlas...');
-      const state = db.getState();
-      for (const colName of collections) {
-        const items = (state as any)[colName];
-        if (Array.isArray(items) && items.length > 0) {
-          const col = mongoDbInstance.collection(colName);
-          await col.insertMany(JSON.parse(JSON.stringify(items)));
-        }
-      }
-      console.log('[MongoDB Atlas] Seed complete. All collections populated on Atlas!');
-    } else {
-      console.log('[MongoDB Atlas] Synchronized and loaded live collections from Atlas cloud database.');
-    }
+      db.saveLocal();
+      return true;
+    };
 
-    db.saveLocal();
-    return true;
+    const timeoutPromise = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 3000));
+    return await Promise.race([connectPromise(), timeoutPromise]);
   } catch (err: any) {
     console.warn(`[MongoDB Atlas Notice] Atlas connection failed (${err.message}). Defaulting seamlessly to local disk.`, err);
+    isMongoConnecting = false;
     return false;
   }
 }
