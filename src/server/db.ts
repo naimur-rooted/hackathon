@@ -1258,16 +1258,16 @@ class Database {
     }
   }
 
-  public async save(): Promise<void> {
+  public async save(targetCollection?: string): Promise<void> {
     this.saveState(this.state);
-    await this.syncToMongo();
+    await this.syncToMongo(targetCollection);
   }
 
   public saveLocal(): void {
     this.saveState(this.state);
   }
 
-  private async syncToMongo(): Promise<void> {
+  private async syncToMongo(targetCollection?: string): Promise<void> {
     if (!mongoDbInstance) return;
     try {
       const collections = [
@@ -1285,16 +1285,30 @@ class Database {
         'helpdeskInquiries',
       ] as const;
 
+      const collectionsToSync = targetCollection ? [targetCollection as any] : collections;
       const state = this.state;
       await Promise.all(
-        collections.map(async (colName) => {
+        collectionsToSync.map(async (colName: any) => {
           try {
             const items = (state as any)[colName];
             if (Array.isArray(items) && mongoDbInstance) {
               const col = mongoDbInstance.collection(colName);
-              await col.deleteMany({});
-              if (items.length > 0) {
-                await col.insertMany(JSON.parse(JSON.stringify(items)));
+              if (colName === 'users') {
+                const bulkOps = items.map((u: any) => ({
+                  updateOne: {
+                    filter: { email: u.email.toLowerCase() },
+                    update: { $set: u },
+                    upsert: true,
+                  },
+                }));
+                if (bulkOps.length > 0) {
+                  await col.bulkWrite(bulkOps);
+                }
+              } else {
+                await col.deleteMany({});
+                if (items.length > 0) {
+                  await col.insertMany(JSON.parse(JSON.stringify(items)));
+                }
               }
             }
           } catch {
@@ -1322,6 +1336,10 @@ export const db = new Database();
 let mongoDbInstance: Db | null = null;
 let isMongoConnected = false;
 let isMongoConnecting = false;
+
+export function getMongoDb(): Db | null {
+  return mongoDbInstance;
+}
 
 export async function initMongo(): Promise<boolean> {
   if (isMongoConnected) return true;

@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 import nodemailer from 'nodemailer';
+import { getMongoDb } from './db.js';
 
 function getSmtpCredentials() {
   const user = (process.env.SMTP_USER || process.env.EMAIL_USER || process.env.GMAIL_USER || 'sahinfdr89@gmail.com').trim();
@@ -21,9 +22,9 @@ function createTransporter(port: number = 587, secure: boolean = false) {
     tls: {
       rejectUnauthorized: false,
     },
-    connectionTimeout: 8000,
-    greetingTimeout: 8000,
-    socketTimeout: 8000,
+    connectionTimeout: 3500,
+    greetingTimeout: 3500,
+    socketTimeout: 3500,
   });
 }
 
@@ -50,7 +51,22 @@ export async function sendOtpEmail(
 
   // Save in store
   const key = `${email.toLowerCase()}_${type}`;
-  otpMap.set(key, { email: email.toLowerCase(), code, type, expiresAt });
+  const otpRecord: OtpRecord = { email: email.toLowerCase(), code, type, expiresAt };
+  otpMap.set(key, otpRecord);
+
+  // Persist to MongoDB Atlas for cross-instance serverless verification
+  try {
+    const mongoDb = getMongoDb();
+    if (mongoDb) {
+      await mongoDb.collection('otps').updateOne(
+        { _id: key as any },
+        { $set: otpRecord },
+        { upsert: true }
+      );
+    }
+  } catch (err: any) {
+    console.warn('[OTP MongoDB Atlas Save Notice]', err.message);
+  }
 
   const studentName = name?.trim() || 'Student';
   let subject = '';
@@ -206,7 +222,7 @@ Website: https://cityuniversity.ac.bd`;
   }
 }
 
-export function verifyOtpCode(email: string, code: string, type: 'LOGIN' | 'FORGOT_PASSWORD' | 'REGISTER'): boolean {
+export async function verifyOtpCode(email: string, code: string, type: 'LOGIN' | 'FORGOT_PASSWORD' | 'REGISTER'): Promise<boolean> {
   if (!code) return false;
   const cleanCode = code.trim();
 
@@ -216,18 +232,29 @@ export function verifyOtpCode(email: string, code: string, type: 'LOGIN' | 'FORG
   const key = `${email.toLowerCase()}_${type}`;
   const record = otpMap.get(key);
 
-  if (!record) {
-    return false;
+  if (record) {
+    if (Date.now() <= record.expiresAt && record.code.trim() === cleanCode) {
+      otpMap.delete(key);
+      try {
+        const mongoDb = getMongoDb();
+        if (mongoDb) await mongoDb.collection('otps').deleteOne({ _id: key as any });
+      } catch {}
+      return true;
+    }
   }
 
-  if (Date.now() > record.expiresAt) {
-    otpMap.delete(key);
-    return false;
-  }
-
-  if (record.code.trim() === cleanCode) {
-    otpMap.delete(key);
-    return true;
+  // Cross-instance lookup in MongoDB Atlas for serverless functions
+  try {
+    const mongoDb = getMongoDb();
+    if (mongoDb) {
+      const doc = await mongoDb.collection('otps').findOne({ _id: key as any });
+      if (doc && doc.code && doc.code.trim() === cleanCode && Date.now() <= doc.expiresAt) {
+        await mongoDb.collection('otps').deleteOne({ _id: key as any }).catch(() => {});
+        return true;
+      }
+    }
+  } catch (err: any) {
+    console.warn('[OTP MongoDB Atlas Verify Notice]', err.message);
   }
 
   return false;

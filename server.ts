@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { db, initMongo, User, Notice, Exam, EventItem, EventRegistration, ResourceItem, LostFoundItem, DirectoryContact, HelpdeskInquiry } from './src/server/db.js';
+import { db, initMongo, getMongoDb, User, Notice, Exam, EventItem, EventRegistration, ResourceItem, LostFoundItem, DirectoryContact, HelpdeskInquiry } from './src/server/db.js';
 import { generateToken, hashPassword, comparePassword, authenticate, optionalAuth, requireAdmin, AuthRequest } from './src/server/auth.js';
 import { summarizeNotice, askCampusAssistant } from './src/server/ai.js';
 import { sendOtpEmail, verifyOtpCode } from './src/server/email.js';
@@ -20,8 +20,16 @@ export async function configureApp() {
   isAppConfigured = true;
   await initMongo();
 
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ limit: '50mb', extended: true }));
+  // Support Vercel Serverless pre-parsed body to prevent request stream hanging
+  app.use((req, res, next) => {
+    if (req.body && typeof req.body === 'object') {
+      return next();
+    }
+    express.json({ limit: '50mb' })(req, res, (err) => {
+      if (err) return next(err);
+      express.urlencoded({ limit: '50mb', extended: true })(req, res, next);
+    });
+  });
 
   // CORS headers
   app.use((req, res, next) => {
@@ -59,7 +67,19 @@ export async function configureApp() {
     }
 
     const state = db.getState();
-    const user = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    let user = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) {
+      const mongoDb = getMongoDb();
+      if (mongoDb) {
+        const doc = await mongoDb.collection('users').findOne({ email: email.toLowerCase() });
+        if (doc) {
+          const { _id, ...cleanUser } = doc as any;
+          state.users.push(cleanUser as User);
+          user = cleanUser as User;
+        }
+      }
+    }
+
     if (!user || !comparePassword(password, user.passwordHash)) {
       return res.status(401).json({ success: false, message: 'Invalid credentials. Please verify your email and password.' });
     }
@@ -74,19 +94,31 @@ export async function configureApp() {
   });
 
   // Step 2: Verify Login OTP
-  app.post('/api/auth/verify-login-otp', (req: Request, res: Response) => {
+  app.post('/api/auth/verify-login-otp', async (req: Request, res: Response) => {
     const { email, otp } = req.body;
     if (!email || !otp) {
       return res.status(400).json({ success: false, message: 'Email and OTP code are required' });
     }
 
-    const isValid = verifyOtpCode(email, otp, 'LOGIN');
+    const isValid = await verifyOtpCode(email, otp, 'LOGIN');
     if (!isValid) {
       return res.status(401).json({ success: false, message: 'Invalid or expired OTP code. Please check your email inbox.' });
     }
 
     const state = db.getState();
-    const user = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    let user = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) {
+      const mongoDb = getMongoDb();
+      if (mongoDb) {
+        const doc = await mongoDb.collection('users').findOne({ email: email.toLowerCase() });
+        if (doc) {
+          const { _id, ...cleanUser } = doc as any;
+          state.users.push(cleanUser as User);
+          user = cleanUser as User;
+        }
+      }
+    }
+
     if (!user) {
       return res.status(404).json({ success: false, message: 'User account not found' });
     }
@@ -97,14 +129,26 @@ export async function configureApp() {
   });
 
   // Direct login endpoint (fallback & instant demo)
-  app.post('/api/auth/login', (req: Request, res: Response) => {
+  app.post('/api/auth/login', async (req: Request, res: Response) => {
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ success: false, message: 'Email and password are required' });
     }
 
     const state = db.getState();
-    const user = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    let user = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) {
+      const mongoDb = getMongoDb();
+      if (mongoDb) {
+        const doc = await mongoDb.collection('users').findOne({ email: email.toLowerCase() });
+        if (doc) {
+          const { _id, ...cleanUser } = doc as any;
+          state.users.push(cleanUser as User);
+          user = cleanUser as User;
+        }
+      }
+    }
+
     if (!user || !comparePassword(password, user.passwordHash)) {
       return res.status(401).json({ success: false, message: 'Invalid credentials. Please verify email and password.' });
     }
@@ -122,7 +166,19 @@ export async function configureApp() {
     }
 
     const state = db.getState();
-    const existing = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    let existing = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    if (!existing) {
+      const mongoDb = getMongoDb();
+      if (mongoDb) {
+        const doc = await mongoDb.collection('users').findOne({ email: email.toLowerCase() });
+        if (doc) {
+          const { _id, ...cleanUser } = doc as any;
+          state.users.push(cleanUser as User);
+          existing = cleanUser as User;
+        }
+      }
+    }
+
     if (existing) {
       return res.status(409).json({ success: false, message: 'An account with this email already exists' });
     }
@@ -142,13 +198,25 @@ export async function configureApp() {
       return res.status(400).json({ success: false, message: 'All fields and OTP are required' });
     }
 
-    const isValid = verifyOtpCode(email, otp, 'REGISTER');
+    const isValid = await verifyOtpCode(email, otp, 'REGISTER');
     if (!isValid) {
       return res.status(401).json({ success: false, message: 'Invalid or expired OTP code. Please check your email inbox.' });
     }
 
     const state = db.getState();
-    const existing = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    let existing = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    if (!existing) {
+      const mongoDb = getMongoDb();
+      if (mongoDb) {
+        const doc = await mongoDb.collection('users').findOne({ email: email.toLowerCase() });
+        if (doc) {
+          const { _id, ...cleanUser } = doc as any;
+          state.users.push(cleanUser as User);
+          existing = cleanUser as User;
+        }
+      }
+    }
+
     if (existing) {
       return res.status(409).json({ success: false, message: 'An account with this email already exists' });
     }
@@ -175,7 +243,7 @@ export async function configureApp() {
     };
 
     state.users.push(newUser);
-    await db.save();
+    await db.save('users');
 
     const token = generateToken(newUser);
     const { passwordHash: _, ...safeUser } = newUser;
@@ -190,7 +258,19 @@ export async function configureApp() {
     }
 
     const state = db.getState();
-    const user = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    let user = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) {
+      const mongoDb = getMongoDb();
+      if (mongoDb) {
+        const doc = await mongoDb.collection('users').findOne({ email: email.toLowerCase() });
+        if (doc) {
+          const { _id, ...cleanUser } = doc as any;
+          state.users.push(cleanUser as User);
+          user = cleanUser as User;
+        }
+      }
+    }
+
     if (!user) {
       return res.status(404).json({ success: false, message: 'No account registered with this email address' });
     }
@@ -204,25 +284,37 @@ export async function configureApp() {
   });
 
   // Forgot Password: Step 2 - Verify OTP & Set New Password
-  app.post('/api/auth/reset-password', (req: Request, res: Response) => {
+  app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
     const { email, otp, newPassword } = req.body;
     if (!email || !otp || !newPassword) {
       return res.status(400).json({ success: false, message: 'Email, OTP, and new password are required' });
     }
 
-    const isValid = verifyOtpCode(email, otp, 'FORGOT_PASSWORD');
+    const isValid = await verifyOtpCode(email, otp, 'FORGOT_PASSWORD');
     if (!isValid) {
       return res.status(401).json({ success: false, message: 'Invalid or expired OTP code. Please check your email inbox.' });
     }
 
     const state = db.getState();
-    const user = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    let user = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) {
+      const mongoDb = getMongoDb();
+      if (mongoDb) {
+        const doc = await mongoDb.collection('users').findOne({ email: email.toLowerCase() });
+        if (doc) {
+          const { _id, ...cleanUser } = doc as any;
+          state.users.push(cleanUser as User);
+          user = cleanUser as User;
+        }
+      }
+    }
+
     if (!user) {
       return res.status(404).json({ success: false, message: 'User account not found' });
     }
 
     user.passwordHash = hashPassword(newPassword);
-    db.save();
+    await db.save('users');
 
     res.json({ success: true, message: 'Password has been reset successfully! You can now log in.' });
   });
