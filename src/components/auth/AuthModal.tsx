@@ -8,7 +8,6 @@ export const AuthModal: React.FC = () => {
   const {
     isAuthModalOpen,
     closeAuthModal,
-    login,
     sendLoginOtp,
     verifyLoginOtp,
     sendRegisterOtp,
@@ -52,24 +51,6 @@ export const AuthModal: React.FC = () => {
     setError(null);
     setSuccessMsg(null);
     setOtp('');
-  };
-
-  // Direct Password Login (Instant access without waiting for OTP)
-  const handleDirectLogin = async () => {
-    if (!email || !password) {
-      setError('Please enter your email and password first.');
-      return;
-    }
-    resetAllStates();
-    setLoading(true);
-    try {
-      await login(email.trim(), password);
-      closeAuthModal();
-    } catch (err: any) {
-      setError(err.message || 'Invalid email or password.');
-    } finally {
-      setLoading(false);
-    }
   };
 
   // STEP 1: SINGLE UNIFIED LOGIN (Email + Password -> sends real OTP to Gmail)
@@ -297,7 +278,7 @@ export const AuthModal: React.FC = () => {
               </div>
             </div>
 
-            <div className="space-y-2 pt-1">
+            <div className="pt-1">
               <button
                 type="submit"
                 disabled={loading}
@@ -308,16 +289,6 @@ export const AuthModal: React.FC = () => {
                 ) : (
                   'Sign In with Email OTP →'
                 )}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleDirectLogin}
-                disabled={loading}
-                className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-xs font-medium transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
-              >
-                <Lock className="w-3.5 h-3.5 text-slate-400" />
-                <span>Instant Sign In (Password Only)</span>
               </button>
             </div>
 

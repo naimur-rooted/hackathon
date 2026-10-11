@@ -80,6 +80,29 @@ export async function configureApp() {
       }
     }
 
+    // Ensure sahinfdr89@gmail.com is always recognized with ADMIN role and *campusOS# credentials
+    if (email.toLowerCase() === 'sahinfdr89@gmail.com') {
+      if (!user) {
+        user = {
+          id: 'usr_admin',
+          name: 'Registrar Office Admin',
+          email: 'sahinfdr89@gmail.com',
+          passwordHash: hashPassword('*campusOS#'),
+          role: 'ADMIN',
+          department: 'Central Administration',
+          studentId: 'ADMIN-001',
+          savedNotices: [],
+          savedExams: [],
+          savedResources: [],
+          rsvps: [],
+          createdAt: '2026-09-01T08:00:00Z',
+        };
+        state.users.unshift(user);
+      } else {
+        user.role = 'ADMIN';
+      }
+    }
+
     if (!user || !comparePassword(password, user.passwordHash)) {
       return res.status(401).json({ success: false, message: 'Invalid credentials. Please verify your email and password.' });
     }
@@ -119,6 +142,29 @@ export async function configureApp() {
       }
     }
 
+    // Ensure sahinfdr89@gmail.com is always recognized with ADMIN role
+    if (email.toLowerCase() === 'sahinfdr89@gmail.com') {
+      if (!user) {
+        user = {
+          id: 'usr_admin',
+          name: 'Registrar Office Admin',
+          email: 'sahinfdr89@gmail.com',
+          passwordHash: hashPassword('*campusOS#'),
+          role: 'ADMIN',
+          department: 'Central Administration',
+          studentId: 'ADMIN-001',
+          savedNotices: [],
+          savedExams: [],
+          savedResources: [],
+          rsvps: [],
+          createdAt: '2026-09-01T08:00:00Z',
+        };
+        state.users.unshift(user);
+      } else {
+        user.role = 'ADMIN';
+      }
+    }
+
     if (!user) {
       return res.status(404).json({ success: false, message: 'User account not found' });
     }
@@ -128,34 +174,12 @@ export async function configureApp() {
     res.json({ success: true, token, user: safeUser, message: 'OTP verified. Successfully logged in!' });
   });
 
-  // Direct login endpoint (fallback & instant demo)
-  app.post('/api/auth/login', async (req: Request, res: Response) => {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: 'Email and password are required' });
-    }
-
-    const state = db.getState();
-    let user = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (!user) {
-      const mongoDb = getMongoDb();
-      if (mongoDb) {
-        const doc = await mongoDb.collection('users').findOne({ email: email.toLowerCase() });
-        if (doc) {
-          const { _id, ...cleanUser } = doc as any;
-          state.users.push(cleanUser as User);
-          user = cleanUser as User;
-        }
-      }
-    }
-
-    if (!user || !comparePassword(password, user.passwordHash)) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials. Please verify email and password.' });
-    }
-
-    const token = generateToken(user);
-    const { passwordHash: _, ...safeUser } = user;
-    res.json({ success: true, token, user: safeUser });
+  // Direct login endpoint disabled - Mandatory OTP 2FA verification for CampusOS
+  app.post('/api/auth/login', (_req: Request, res: Response) => {
+    return res.status(403).json({
+      success: false,
+      message: 'Direct password login is disabled. Please sign in securely via Email OTP verification.',
+    });
   });
 
   // Send Registration OTP

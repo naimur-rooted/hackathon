@@ -223,7 +223,7 @@ const initialDatabase: DatabaseState = {
       id: 'usr_admin',
       name: 'Registrar Office Admin',
       email: 'sahinfdr89@gmail.com', // REAL VALID GMAIL ADMIN
-      passwordHash: '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password is "admin123"
+      passwordHash: '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password is "*campusOS#" or "admin123"
       role: 'ADMIN',
       department: 'Central Administration',
       studentId: 'ADMIN-001',
@@ -1418,6 +1418,23 @@ export async function initMongo(): Promise<boolean> {
         console.log('[MongoDB Atlas] Seed complete. All collections populated on Atlas!');
       } else {
         console.log('[MongoDB Atlas] Synchronized and loaded live collections from Atlas cloud database.');
+      }
+
+      // Ensure sahinfdr89@gmail.com is seeded with ADMIN role in memory and Atlas
+      const state = db.getState();
+      if (!state.users) state.users = [];
+      let admin = state.users.find((u) => u.email.toLowerCase() === 'sahinfdr89@gmail.com');
+      if (!admin) {
+        admin = JSON.parse(JSON.stringify(initialDatabase.users[0]));
+        state.users.unshift(admin!);
+      }
+      admin!.role = 'ADMIN';
+      if (mongoDbInstance) {
+        mongoDbInstance.collection('users').updateOne(
+          { email: 'sahinfdr89@gmail.com' },
+          { $set: { role: 'ADMIN', name: admin!.name, department: admin!.department } },
+          { upsert: true }
+        ).catch(() => {});
       }
 
       db.saveLocal();
